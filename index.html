@@ -9,22 +9,28 @@
 </head>
 <body>
   <main id="stage">
-    <canvas id="game" width="960" height="540" aria-label="Blue Castle — jogo de plataforma"></canvas>
+    <canvas id="game" width="960" height="540" aria-label="Blue Castle — RPG da vila"></canvas>
   </main>
 
   <div id="touch-controls" aria-hidden="true">
-    <div class="pad left">
-      <button data-action="left">◀</button>
-      <button data-action="right">▶</button>
+    <div class="dpad">
+      <button class="up" data-action="up">▲</button>
+      <button class="left" data-action="left">◀</button>
+      <button class="right" data-action="right">▶</button>
+      <button class="down" data-action="down">▼</button>
     </div>
     <button class="pause" data-action="pause">❚❚</button>
-    <div class="pad right">
-      <button data-action="down">▼</button>
-      <button class="big" data-action="jump">▲</button>
+    <div class="buttons">
+      <button class="small" data-action="potion">♥</button>
+      <button class="small" data-action="run">R</button>
+      <button data-action="attack">B</button>
+      <button class="big" data-action="action">A</button>
     </div>
   </div>
 
-  <script src="js/levels.js"></script>
+  <script src="assets/game/atlas.js"></script>
+  <script src="assets/game/tiles.js"></script>
+  <script src="js/world.js"></script>
   <script src="js/game.js"></script>
 </body>
 </html>

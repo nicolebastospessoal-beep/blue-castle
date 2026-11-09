@@ -44,20 +44,33 @@ body.touch #touch-controls {
   display: block;
 }
 
-#touch-controls .pad {
+#touch-controls .dpad {
   position: absolute;
+  left: max(16px, env(safe-area-inset-left));
+  bottom: max(16px, env(safe-area-inset-bottom));
+  width: 180px;
+  height: 180px;
+}
+
+#touch-controls .dpad button {
+  position: absolute;
+  width: 60px;
+  height: 60px;
+  border-radius: 14px;
+}
+
+#touch-controls .dpad .up { left: 60px; top: 0; }
+#touch-controls .dpad .down { left: 60px; bottom: 0; }
+#touch-controls .dpad .left { left: 0; top: 60px; }
+#touch-controls .dpad .right { right: 0; top: 60px; }
+
+#touch-controls .buttons {
+  position: absolute;
+  right: max(16px, env(safe-area-inset-right));
   bottom: max(16px, env(safe-area-inset-bottom));
   display: flex;
-  gap: 14px;
+  gap: 12px;
   align-items: flex-end;
-}
-
-#touch-controls .pad.left {
-  left: max(16px, env(safe-area-inset-left));
-}
-
-#touch-controls .pad.right {
-  right: max(16px, env(safe-area-inset-right));
 }
 
 #touch-controls button {
@@ -68,16 +81,22 @@ body.touch #touch-controls {
   border: 2px solid rgba(160, 190, 255, 0.55);
   background: rgba(20, 40, 100, 0.45);
   color: #e6f0ff;
-  font-size: 26px;
+  font-size: 24px;
+  font-weight: bold;
   line-height: 1;
   touch-action: none;
-  backdrop-filter: blur(2px);
 }
 
 #touch-controls button.big {
   width: 84px;
   height: 84px;
-  font-size: 32px;
+  font-size: 30px;
+}
+
+#touch-controls button.small {
+  width: 50px;
+  height: 50px;
+  font-size: 18px;
 }
 
 #touch-controls button.active {
@@ -86,7 +105,7 @@ body.touch #touch-controls {
 
 #touch-controls .pause {
   position: absolute;
-  bottom: max(24px, env(safe-area-inset-bottom));
+  top: max(12px, env(safe-area-inset-top));
   left: 50%;
   transform: translateX(-50%);
   width: 46px;
