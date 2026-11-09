@@ -38,6 +38,8 @@ SHEETS = {
     'rei-nadando': dict(grid=True, water=True, ref_h=820),
     'rei-emocoes': dict(grid=True, ref=0, target=96),
     'rei-retratos': dict(grid=False, ref=0, target=120),
+    'relogio': dict(grid=True, ref=0, target=84, char=True, circle=186,
+                    cells=[(x, y) for y in (352, 794, 1282, 1748) for x in (254, 636, 1028, 1414, 1790)]),
     # cenário
     'arvores': dict(merge=0, scale=0.30),
     'casas-01': dict(scale=0.34),
@@ -76,6 +78,7 @@ NAMES = {
     'rei-nadando': ['nadar-baixo', 'nadar-cima-0', 'nadar-cima-1', 'nadar-cima-2'],
     'rei-emocoes': ['corpo-neutro', 'corpo-feliz', 'corpo-assustado', 'corpo-bravo', 'corpo-cansado'],
     'rei-retratos': ['retrato-neutro', 'retrato-feliz', 'retrato-assustado', 'retrato-bravo', 'retrato-cansado'],
+    'relogio': [f'relogio-{i}' for i in range(20)],
     'arvores': ['arvore-carvalho', 'arvore-copa', 'arvore-betula', 'arvore-pinheiro', 'arbusto-0', 'arbusto-1',
                 'arbusto-2', 'arvore-pinheiro-2', 'arvore-seca', 'arvore-outono', 'arvore-pinheiro-outono',
                 'arvore-florida', 'arvore-pinheiro-neve', 'arvore-neve', 'toco', 'tronco', 'tronco-2', 'toco-broto'],
@@ -99,6 +102,12 @@ MANUAL = [
     ('rei-bau', (1540, 1330, 1796, 1644), 'bau-aberto', None),
     ('pontes', (30, 0, 255, 250), 'ponte-curta', 0.36),
     ('pontes', (300, 0, 525, 250), 'ponte-curta-2', 0.36),
+    # barra de vida: peças avulsas (a barra é montada no jogo)
+    ('vida', (93, 276, 256, 430), 'hp-cheio', None),
+    ('vida', (1256, 276, 1417, 430), 'hp-meio', None),
+    ('vida', (1436, 276, 1597, 430), 'hp-vazio', None),
+    ('vida', (100, 176, 218, 258), 'hp-rotulo', None),
+    ('botao-pausa', (470, 470, 1580, 1580), 'botao-pausa', None),
 ]
 
 # Grades de tiles de chão: folha -> (colunas, linhas)
@@ -121,6 +130,7 @@ TARGET_H = {
     'desmaio-0': 72, 'desmaio-1': 62, 'desmaio-2': 36, 'desmaio-3': 36,
     'cama': 104, 'sonambulo-direita': 76, 'sonambulo-esquerda': 76,
     'olhos-fechados-baixo': 76, 'olhos-fechados-cima': 76,
+    'hp-cheio': 30, 'hp-meio': 30, 'hp-vazio': 30, 'hp-rotulo': 18, 'botao-pausa': 44,
     'nadar-baixo': 50, 'nadar-cima-0': 54, 'nadar-cima-1': 54, 'nadar-cima-2': 54,
 }
 
@@ -182,9 +192,18 @@ def main():
         a, fg = fg_mask(sheet, grid=cfg.get('grid', False), line_rgb=cfg.get('line_rgb'), glow=cfg.get('glow', False))
         if cfg.get('water'):
             fg = key_water(a, fg)
-        char = sheet.startswith('rei')
-        boxes = [b for b in components(fg, merge=cfg.get('merge', 1 if char else 2))
-                 if (b[2] - b[0]) * (b[3] - b[1]) > (20000 if char else 3000)]
+        char = sheet.startswith('rei') or cfg.get('char', False)
+        if 'cells' in cfg:  # grade fixa: recorta em volta de cada centro
+            boxes = [(x - 196, y - 200, x + 196, y + 200) for x, y in cfg['cells']]
+            if cfg.get('circle'):  # objeto redondo: descarta tudo fora do círculo
+                yy, xx = np.mgrid[0:fg.shape[0], 0:fg.shape[1]]
+                keep = np.zeros_like(fg)
+                for x, y in cfg['cells']:
+                    keep |= (xx - x) ** 2 + (yy - y) ** 2 <= cfg['circle'] ** 2
+                fg = fg & keep
+        else:
+            boxes = [b for b in components(fg, merge=cfg.get('merge', 1 if char else 2))
+                     if (b[2] - b[0]) * (b[3] - b[1]) > (20000 if char else 3000)]
         crops = [crop_rgba(a, fg, b, holes=char) for b in boxes]
         if 'scale' in cfg:
             s = cfg['scale']
@@ -202,7 +221,8 @@ def main():
         print(f'{sheet}: {len(crops)} recortes, escala {s:.3f}')
 
     for sheet, box, name, s in MANUAL:
-        a, fg = fg_mask(sheet)
+        # HUD: máscara estrita (o roxo-escuro dos corações vazios não é fundo)
+        a, fg = fg_mask(sheet, loose=sheet not in ('vida', 'botao-pausa'))
         im = crop_rgba(a, fg, box)
         if s is None:
             s = TARGET_H[name] / im.height
@@ -256,7 +276,7 @@ def main():
                     ys, xs = np.nonzero(sub)
                     found[(r, c)] = (x0 + xs.min(), y0 + ys.min(), x0 + xs.max(), y0 + ys.max())
         for (r, c), (bx0, by0, bx1, by1) in sorted(found.items()):
-            ix, iy = int((bx1 - bx0) * 0.06), int((by1 - by0) * 0.06)
+            ix, iy = int((bx1 - bx0) * 0.085), int((by1 - by0) * 0.085)
             box = (bx0 + ix, by0 + iy, bx1 - ix, by1 - iy)
             im = Image.fromarray(a[box[1]:box[3], box[0]:box[2]].astype(np.uint8), 'RGB')
             im = im.resize((TILE, TILE), Image.BOX)
@@ -273,5 +293,20 @@ def main():
     print(f'tiles: {len(tiles)}')
 
 
+# Telas cheias (imagem inteira, sem recorte de fundo)
+SCREENS = {'tela-morte': 960}
+
+
+def build_screens():
+    sys.path.insert(0, os.path.dirname(__file__))
+    from spritelib import load
+    for name, size in SCREENS.items():
+        a = load(name)  # já remove a marca d'água
+        im = Image.fromarray(a.astype(np.uint8), 'RGB').resize((size, size), Image.BOX)
+        im.save(f'{OUT}/{name}.webp', quality=90, method=6)
+        print(f'tela: {name}')
+
+
 if __name__ == '__main__':
     main()
+    build_screens()

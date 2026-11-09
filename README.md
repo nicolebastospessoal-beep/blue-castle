@@ -2,7 +2,12 @@
 
 RPG 2D em pixel art, visto de cima, feito com **HTML5 Canvas e JavaScript puro**: sem dependências e sem build.
 
-Você controla o Rei Azul em uma vila com praça, feira, catedral, rio, fazenda e lago. Dá para explorar, nadar, cortar mato com a espada, sentar nos bancos, beber poções, tocar o sino e encontrar os 4 baús escondidos. Dormir em casa alterna entre dia e noite: os prédios mudam de sprite e as luzes se acendem.
+Você controla o Rei Azul em uma vila com praça, feira, catedral, rio, fazenda e lago. Dá para explorar, nadar, cortar mato com a espada, sentar nos bancos, beber poções, tocar o sino e encontrar os 4 baús escondidos.
+
+- **Relógio:** o dia dura 12 minutos reais e a noite, outros 12. O relógio no canto superior direito avança com o tempo, e há crepúsculo e amanhecer graduais. À noite os prédios mudam de sprite e as luzes se acendem. Dormir em casa pula para o próximo período.
+- **Vida:** a barra de corações fica no canto inferior esquerdo e sobe e desce em meios corações. A fogueira tira ½ coração, a poção cura 2 corações e a água do poço cura 1.
+- **Morte:** com a vida zerada, o rei desmaia e aparece a tela "Você morreu... Renasça.". Ao confirmar, ele renasce em casa.
+- **Pausa:** o botão no canto superior esquerdo funciona com clique ou toque (ou P / Esc).
 
 ## Como jogar
 

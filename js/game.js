@@ -10,7 +10,17 @@ const VIEW_H = 540;
 const WALK_SPEED = 140;
 const RUN_SPEED = 250;
 const SWIM_SPEED = 85;
-const MAX_HP = 5;
+const MAX_HP = 10; // em meios corações (5 corações)
+
+// Relógio: 12 minutos reais de dia + 12 de noite
+const DAY_LEN = 12 * 60;
+const NIGHT_LEN = 12 * 60;
+const CYCLE = DAY_LEN + NIGHT_LEN;
+const TWILIGHT = 60; // segundos de transição suave antes de virar
+// Quadros do relógio (folha relogio.png) na ordem do tempo
+const CLOCK_DAY = [19, 0, 1, 2, 3, 4, 5, 6, 7, 8];
+const CLOCK_NIGHT = [9, 10, 11, 12, 13, 15, 16, 17, 18, 14];
+const PAUSE_BTN = { x: 12, y: 12, w: 44, h: 44 };
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
@@ -30,12 +40,12 @@ const storage = {
 // ------------------------------------------------------------
 //  Imagens
 // ------------------------------------------------------------
-const images = { atlas: new Image(), tiles: new Image() };
+const images = { atlas: new Image(), tiles: new Image(), morte: new Image() };
 let loaded = 0;
-images.atlas.onload = () => { loaded += 1; };
-images.tiles.onload = () => { loaded += 1; };
+for (const img of Object.values(images)) img.onload = () => { loaded += 1; };
 images.atlas.src = 'assets/game/atlas.webp';
 images.tiles.src = 'assets/game/tiles.webp';
+images.morte.src = 'assets/game/tela-morte.webp';
 
 function spriteSize(name) {
   const r = ATLAS[name];
@@ -167,7 +177,16 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
   btn.addEventListener('pointerleave', end);
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 });
-canvas.addEventListener('pointerdown', () => { Sound.init(); Input.pressed.add('action'); });
+canvas.addEventListener('pointerdown', (e) => {
+  Sound.init();
+  const r = canvas.getBoundingClientRect();
+  const x = ((e.clientX - r.left) / r.width) * VIEW_W;
+  const y = ((e.clientY - r.top) / r.height) * VIEW_H;
+  const b = PAUSE_BTN;
+  const onPause = x >= b.x && x <= b.x + b.w && y >= b.y && y <= b.y + b.h;
+  if (onPause && ['play', 'pause', 'dialog'].includes(game.state)) Input.pressed.add('pause');
+  else Input.pressed.add('action');
+});
 if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) document.body.classList.add('touch');
 window.addEventListener('touchstart', () => document.body.classList.add('touch'), { once: true, passive: true });
 
@@ -216,9 +235,13 @@ const ONE_SHOT = ['faint', 'potion', 'chest'];
 //  Estado
 // ------------------------------------------------------------
 const game = {
-  state: 'loading', // loading | title | play | dialog | pause | fade
+  state: 'loading', // loading | title | play | dialog | pause | fade | dead
+  deadT: 0,
   time: 0,
   night: false,
+  clock: 0, // segundos desde o amanhecer (0..CYCLE)
+  hpFlash: 0,
+  hpFlashUp: false,
   coins: 0,
   potions: 0,
   chestsOpened: 0,
@@ -248,6 +271,7 @@ function startGame() {
   game.potions = 0;
   game.chestsOpened = 0;
   game.night = false;
+  game.clock = 0;
   particles = [];
   snapCamera();
   game.state = 'play';
@@ -425,7 +449,7 @@ function interact(o) {
   }
   if (o.kind === 'casa') { openDialog('casa', () => sleep()); return; }
   if (o.kind === 'poco') {
-    p.hp = Math.min(MAX_HP, p.hp + 1);
+    changeHp(2);
     openDialog('poco');
     return;
   }
@@ -459,9 +483,8 @@ function finishChest(o) {
 function sleep() {
   Sound.sleep();
   fadeTo(() => {
-    game.night = !game.night;
-    applyDayNight();
-    player.hp = MAX_HP;
+    setClock(game.night ? 0 : DAY_LEN); // dorme até o próximo amanhecer / anoitecer
+    changeHp(MAX_HP);
     player.x = world.home.x;
     player.y = world.home.y + 40;
     player.facing = 'down';
@@ -477,20 +500,25 @@ function applyDayNight() {
   }
 }
 
-function hurt(fromX, fromY) {
+function changeHp(delta) {
+  const before = player.hp;
+  player.hp = clamp(player.hp + delta, 0, MAX_HP);
+  if (player.hp !== before) { game.hpFlash = 0.5; game.hpFlashUp = delta > 0; }
+}
+
+function hurt(fromX, fromY, dmg = 1) {
   const p = player;
   if (p.inv > 0 || p.state === 'faint') return;
-  p.hp -= 1;
+  changeHp(-dmg);
   p.inv = 1.3;
   game.shake = 8;
   Sound.hurt();
   burst(p.x, p.y - 40, '#ff6b7d', 12, 140);
-  floatText('-1 ♥', p.x, p.y - 80, '#ff8a9a');
+  floatText(dmg === 1 ? '-½ ♥' : `-${dmg / 2} ♥`, p.x, p.y - 80, '#ff8a9a');
   const d = Math.hypot(p.x - fromX, p.y - fromY) || 1;
   p.vx = ((p.x - fromX) / d) * 260;
   p.vy = ((p.y - fromY) / d) * 260;
   if (p.hp <= 0) {
-    p.hp = 0;
     setState('faint');
     Sound.faint();
   } else {
@@ -547,22 +575,16 @@ function updatePlayer(dt) {
       if (p.stateT > 0.45) setState('idle');
       return;
     case 'faint':
-      if (p.stateT > 2.4 && !game.fade) {
-        fadeTo(() => {
-          p.hp = MAX_HP;
-          p.inv = 0;
-          p.x = world.home.x;
-          p.y = world.home.y + 40;
-          p.facing = 'down';
-          setState('idle');
-          snapCamera();
-        }, { hold: 0.8, after: 'acordou' });
+      // depois do desmaio, aparece a tela "Você morreu... Renasça."
+      if (p.stateT > 2.4 && game.state === 'play') {
+        game.state = 'dead';
+        game.deadT = 0;
       }
       return;
     case 'potion':
       if (p.stateT > 1.25) {
         setState('idle');
-        p.hp = Math.min(MAX_HP, p.hp + 2);
+        changeHp(4);
         burst(p.x, p.y - 40, '#ff6b8a', 16, 100, 0.8, -60);
         floatText('+2 ♥', p.x, p.y - 84, '#ff9fb2');
       }
@@ -641,6 +663,41 @@ function updatePlayer(dt) {
 }
 
 // ------------------------------------------------------------
+//  Relógio do dia
+// ------------------------------------------------------------
+function clockFrame() {
+  if (game.clock < DAY_LEN) return CLOCK_DAY[Math.min(9, Math.floor(game.clock / (DAY_LEN / 10)))];
+  return CLOCK_NIGHT[Math.min(9, Math.floor((game.clock - DAY_LEN) / (NIGHT_LEN / 10)))];
+}
+
+// 0 = dia claro, 1 = noite fechada (com crepúsculo e amanhecer suaves)
+function darkness() {
+  const c = game.clock;
+  if (c < DAY_LEN) return c > DAY_LEN - TWILIGHT ? 0.6 * (1 - (DAY_LEN - c) / TWILIGHT) : 0;
+  const n = c - DAY_LEN;
+  if (n < TWILIGHT) return 0.6 + 0.4 * (n / TWILIGHT);
+  if (n > NIGHT_LEN - TWILIGHT) return (NIGHT_LEN - n) / TWILIGHT;
+  return 1;
+}
+
+function setClock(c) {
+  game.clock = ((c % CYCLE) + CYCLE) % CYCLE;
+  const night = game.clock >= DAY_LEN;
+  if (night !== game.night) {
+    game.night = night;
+    applyDayNight();
+  }
+}
+
+function tickClock(dt) {
+  const wasNight = game.night;
+  setClock(game.clock + dt);
+  if (game.night !== wasNight && game.state === 'play') {
+    floatText(game.night ? 'Anoiteceu...' : 'Amanheceu!', player.x, player.y - 100, game.night ? '#bcd0ff' : '#ffe58a');
+  }
+}
+
+// ------------------------------------------------------------
 //  Câmera
 // ------------------------------------------------------------
 function camTarget() {
@@ -663,26 +720,45 @@ function update(dt) {
   game.time += dt;
   if (game.shake > 0) game.shake = Math.max(0, game.shake - dt * 30);
   if (Input.hit('mute')) Sound.toggleMute();
+  if (game.hpFlash > 0) game.hpFlash -= dt;
+  if (world && player && ['play', 'dialog', 'fade'].includes(game.state)) tickClock(dt);
 
   switch (game.state) {
     case 'loading':
-      if (loaded >= 2) game.state = 'title';
+      if (loaded >= 3) game.state = 'title';
       break;
     case 'title':
       if (Input.hit('action') || Input.hit('attack')) { Sound.blip(); startGame(); }
       break;
     case 'play':
-      if (Input.hit('pause')) { game.state = 'pause'; break; }
+      if (Input.hit('pause')) { game.pausedFrom = 'play'; game.state = 'pause'; break; }
       updatePlayer(dt);
       break;
     case 'dialog':
+      if (Input.hit('pause')) { game.pausedFrom = 'dialog'; game.state = 'pause'; break; }
       updateDialog(dt);
       break;
     case 'pause':
-      if (Input.hit('pause') || Input.hit('action')) game.state = 'play';
+      if (Input.hit('pause') || Input.hit('action')) game.state = game.pausedFrom || 'play';
       break;
     case 'fade':
       updateFade(dt);
+      break;
+    case 'dead':
+      game.deadT += dt;
+      if (game.deadT > 1.6 && (Input.hit('action') || Input.hit('attack'))) {
+        Sound.sleep();
+        fadeTo(() => {
+          changeHp(MAX_HP);
+          player.inv = 0;
+          player.x = world.home.x;
+          player.y = world.home.y + 40;
+          player.facing = 'down';
+          setState('idle');
+          snapCamera();
+        }, { hold: 0.6, after: 'acordou' });
+        game.fade.fromDead = true;
+      }
       break;
     default:
       break;
@@ -813,10 +889,10 @@ nightCanvas.width = VIEW_W;
 nightCanvas.height = VIEW_H;
 const nctx = nightCanvas.getContext('2d');
 
-function drawNight(cx, cy) {
+function drawNight(cx, cy, dark) {
   nctx.globalCompositeOperation = 'source-over';
   nctx.clearRect(0, 0, VIEW_W, VIEW_H);
-  nctx.fillStyle = 'rgba(8,14,48,0.62)';
+  nctx.fillStyle = `rgba(8,14,48,${0.62 * dark})`;
   nctx.fillRect(0, 0, VIEW_W, VIEW_H);
   nctx.globalCompositeOperation = 'destination-out';
   const lights = [{ x: player.x, y: player.y - 40, r: 110, own: true }];
@@ -850,7 +926,7 @@ function drawNight(cx, cy) {
     const x = l.x - cx;
     const y = l.y - cy;
     const g = ctx.createRadialGradient(x, y, 0, x, y, l.r * 0.6);
-    g.addColorStop(0, 'rgba(255,170,70,0.18)');
+    g.addColorStop(0, `rgba(255,170,70,${0.18 * dark})`);
     g.addColorStop(1, 'rgba(255,170,70,0)');
     ctx.fillStyle = g;
     ctx.fillRect(x - l.r, y - l.r, l.r * 2, l.r * 2);
@@ -897,7 +973,8 @@ function drawWorld() {
   }
   ctx.globalAlpha = 1;
 
-  if (game.night) drawNight(cx, cy);
+  const dark = darkness();
+  if (dark > 0.01) drawNight(cx, cy, dark);
 
   // indicador de interação
   if (game.state === 'play' && player.target && !busy() && !player.chestQuick) {
@@ -937,44 +1014,77 @@ function roundRect(x, y, w, h, r) {
   ctx.closePath();
 }
 
-function heart(x, y, s, fill) {
-  ctx.fillStyle = fill;
-  ctx.beginPath();
-  ctx.moveTo(x, y + s * 0.35);
-  ctx.bezierCurveTo(x, y, x - s * 0.5, y, x - s * 0.5, y + s * 0.3);
-  ctx.bezierCurveTo(x - s * 0.5, y + s * 0.6, x, y + s * 0.8, x, y + s);
-  ctx.bezierCurveTo(x, y + s * 0.8, x + s * 0.5, y + s * 0.6, x + s * 0.5, y + s * 0.3);
-  ctx.bezierCurveTo(x + s * 0.5, y, x, y, x, y + s * 0.35);
-  ctx.fill();
+function drawSpriteTL(name, x, y, scale = 1) {
+  const r = ATLAS[name];
+  if (r) ctx.drawImage(images.atlas, r[0], r[1], r[2], r[3], Math.round(x), Math.round(y), Math.round(r[2] * scale), Math.round(r[3] * scale));
 }
 
 function drawHUD() {
+  // Botão de pausa (canto superior esquerdo)
+  drawSpriteTL('botao-pausa', PAUSE_BTN.x, PAUSE_BTN.y);
+
+  // Moedas, poções e baús
   ctx.fillStyle = 'rgba(8,14,40,0.62)';
-  roundRect(12, 10, 400, 44, 10);
+  roundRect(66, 14, 280, 40, 10);
   ctx.fill();
-  for (let i = 0; i < MAX_HP; i++) heart(34 + i * 26, 20, 22, i < player.hp ? '#ff4d6d' : 'rgba(255,255,255,0.18)');
-  // moeda
   ctx.fillStyle = '#ffd34d';
   ctx.beginPath();
-  ctx.arc(178, 32, 9, 0, Math.PI * 2);
+  ctx.arc(88, 34, 9, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#c99a1e';
-  ctx.fillRect(176, 27, 4, 10);
-  text(`${game.coins}`, 194, 39);
-  // poção
+  ctx.fillRect(86, 29, 4, 10);
+  text(`${game.coins}`, 104, 41);
   ctx.fillStyle = '#e0365a';
   ctx.beginPath();
-  ctx.arc(256, 35, 8, 0, Math.PI * 2);
+  ctx.arc(160, 37, 8, 0, Math.PI * 2);
   ctx.fill();
   ctx.fillStyle = '#d9e3f5';
-  ctx.fillRect(253, 21, 6, 7);
-  text(`${game.potions}`, 270, 39);
-  text(game.night ? '☾ Noite' : '☀ Dia', 318, 39, { size: 16, color: game.night ? '#bcd0ff' : '#ffe58a' });
-  ctx.fillStyle = 'rgba(8,14,40,0.62)';
-  roundRect(VIEW_W - 140, 10, 128, 44, 10);
+  ctx.fillRect(157, 23, 6, 7);
+  text(`${game.potions}`, 174, 41);
+  text(`Baús ${game.chestsOpened}/${world.chestsTotal}`, 216, 40, { size: 16, color: '#e6f0ff' });
+
+  // Relógio (canto superior direito)
+  const frame = `relogio-${clockFrame()}`;
+  const cs = spriteSize(frame);
+  drawSpriteTL(frame, VIEW_W - cs.w - 12, 8);
+  const left = game.night ? CYCLE - game.clock : DAY_LEN - game.clock;
+  const mm = Math.floor(left / 60);
+  const ss = Math.floor(left % 60).toString().padStart(2, '0');
+  ctx.fillStyle = 'rgba(8,14,40,0.7)';
+  roundRect(VIEW_W - 12 - cs.w / 2 - 46, cs.h + 10, 92, 22, 8);
   ctx.fill();
-  text(`Baús ${game.chestsOpened}/${world.chestsTotal}`, VIEW_W - 76, 38, { size: 17, align: 'center', color: '#e6f0ff' });
-  if (Sound.muted) text('som desligado (M)', VIEW_W - 16, 74, { size: 12, align: 'right', color: '#9fb0d0', weight: 'normal' });
+  text(`${game.night ? '☾ Noite' : '☀ Dia'} ${mm}:${ss}`, VIEW_W - 12 - cs.w / 2, cs.h + 26, {
+    size: 13, align: 'center', color: game.night ? '#bcd0ff' : '#ffe58a',
+  });
+  if (Sound.muted) text('som desligado (M)', VIEW_W - cs.w - 24, 30, { size: 12, align: 'right', color: '#9fb0d0', weight: 'normal' });
+
+  // Barra de vida (canto inferior esquerdo)
+  const hx = 16;
+  const hy = VIEW_H - 46;
+  const hearts = MAX_HP / 2;
+  ctx.fillStyle = 'rgba(8,14,40,0.55)';
+  roundRect(hx - 6, hy - 22, 36 + hearts * 34, 58, 10);
+  ctx.fill();
+  drawSpriteTL('hp-rotulo', hx, hy - 18);
+  // coração que acabou de mudar (pisca/cresce)
+  const changed = game.hpFlashUp ? Math.ceil(player.hp / 2) - 1 : Math.floor(player.hp / 2);
+  for (let i = 0; i < hearts; i++) {
+    const v = player.hp - i * 2; // 2 = cheio, 1 = metade, <=0 = vazio
+    const name = v >= 2 ? 'hp-cheio' : v === 1 ? 'hp-meio' : 'hp-vazio';
+    let x = hx + 30 + i * 34;
+    let y = hy;
+    let s = 1;
+    if (game.hpFlash > 0) {
+      const k = game.hpFlash / 0.5;
+      if (i === changed) {
+        s = 1 + 0.35 * k;
+        if (!game.hpFlashUp) x += Math.sin(game.time * 60) * 3 * k;
+      }
+    }
+    if (player.hp <= 2 && v > 0) s *= 1 + Math.max(0, Math.sin(game.time * 8)) * 0.12; // vida baixa: pulsa
+    const r = ATLAS[name];
+    drawSpriteTL(name, x - (r[2] * (s - 1)) / 2, y - (r[3] * (s - 1)) / 2, s);
+  }
 }
 
 function wrap(str, maxW) {
@@ -1065,6 +1175,25 @@ function drawTitle() {
   text('Explore a vila, encontre os 4 baús escondidos e cuidado com a fogueira!', VIEW_W / 2, 490, { size: 15, align: 'center', color: '#9fb8ee', weight: 'normal' });
 }
 
+function drawDeathScreen() {
+  const a = game.state === 'dead' ? clamp(game.deadT / 1.2, 0, 1) : 1;
+  ctx.fillStyle = `rgba(0,0,0,${a})`;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  ctx.globalAlpha = a;
+  // a arte é quadrada: corta o centro para 16:9
+  const im = images.morte;
+  const sh = (im.width * VIEW_H) / VIEW_W;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(im, 0, (im.height - sh) / 2, im.width, sh, 0, 0, VIEW_W, VIEW_H);
+  ctx.imageSmoothingEnabled = false;
+  ctx.globalAlpha = 1;
+  if (game.state === 'dead' && game.deadT > 1.6 && Math.sin(game.time * 4) > -0.3) {
+    text(isTouch() ? 'Toque para renascer' : 'Pressione Enter para renascer', VIEW_W / 2, VIEW_H - 40, {
+      size: 20, align: 'center', color: '#d8d2c8',
+    });
+  }
+}
+
 function render() {
   ctx.imageSmoothingEnabled = false;
   if (game.state === 'loading') {
@@ -1077,11 +1206,12 @@ function render() {
   drawWorld();
   drawHUD();
   if (game.state === 'dialog') drawDialog();
+  if (game.state === 'dead' || (game.fade && game.fade.fromDead && !game.fade.done)) drawDeathScreen();
   if (game.state === 'pause') {
     ctx.fillStyle = 'rgba(4,8,28,0.6)';
     ctx.fillRect(0, 0, VIEW_W, VIEW_H);
     text('Pausado', VIEW_W / 2, VIEW_H / 2, { size: 48, align: 'center' });
-    text('P / Esc para continuar', VIEW_W / 2, VIEW_H / 2 + 40, { size: 18, align: 'center', color: '#c6d6ff', weight: 'normal' });
+    text(isTouch() ? 'Toque para continuar' : 'P / Esc ou o botão de pausa para continuar', VIEW_W / 2, VIEW_H / 2 + 40, { size: 18, align: 'center', color: '#c6d6ff', weight: 'normal' });
   }
   drawFadeScene();
 }
@@ -1102,5 +1232,5 @@ requestAnimationFrame(frame);
 
 // Exposto para depuração/testes
 window.BlueCastle = {
-  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep,
+  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep, setClock, hurt,
 };
