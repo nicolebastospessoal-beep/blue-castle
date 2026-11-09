@@ -5,7 +5,9 @@
 //  Blue Castle — RPG 2D visto de cima
 // ============================================================
 
-const VIEW_W = 960;
+// Altura lógica fixa; a largura acompanha a proporção da janela,
+// para o jogo ocupar a tela toda e o HUD ficar colado nos cantos.
+let VIEW_W = 960;
 const VIEW_H = 540;
 const WALK_SPEED = 140;
 const RUN_SPEED = 250;
@@ -24,8 +26,14 @@ const PAUSE_BTN = { x: 12, y: 12, w: 44, h: 44 };
 
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
-canvas.width = VIEW_W;
-canvas.height = VIEW_H;
+function fitScreen() {
+  const aspect = window.innerWidth / Math.max(1, window.innerHeight);
+  VIEW_W = Math.round(clamp(VIEW_H * aspect, 720, 1400));
+  canvas.width = VIEW_W;
+  canvas.height = VIEW_H;
+  if (typeof nightCanvas !== 'undefined') nightCanvas.width = VIEW_W;
+  ctx.imageSmoothingEnabled = false;
+}
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -887,6 +895,8 @@ function drawPlayer(cx, cy) {
 const nightCanvas = document.createElement('canvas');
 nightCanvas.width = VIEW_W;
 nightCanvas.height = VIEW_H;
+fitScreen();
+window.addEventListener('resize', fitScreen);
 const nctx = nightCanvas.getContext('2d');
 
 function drawNight(cx, cy, dark) {

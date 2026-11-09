@@ -24,12 +24,11 @@ body {
 
 #game {
   display: block;
-  /* Mantém a proporção 16:9 ocupando o máximo da tela */
-  width: min(100vw, calc(100vh * 16 / 9));
-  height: min(100vh, calc(100vw * 9 / 16));
+  /* Ocupa a tela inteira; o jogo ajusta a largura lógica à proporção */
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
   image-rendering: pixelated;
-  border-radius: 6px;
-  box-shadow: 0 0 60px rgba(40, 90, 200, 0.35);
 }
 
 /* ---------- Controles de toque ---------- */
