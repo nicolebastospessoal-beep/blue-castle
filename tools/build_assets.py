@@ -38,6 +38,9 @@ SHEETS = {
     'rei-nadando': dict(grid=True, water=True, ref_h=820),
     'rei-emocoes': dict(grid=True, ref=0, target=96),
     'rei-retratos': dict(grid=False, ref=0, target=120),
+    # brilho rosado (amarelo misturado ao magenta) é removido; o brilho é desenhado no jogo
+    'vagalume': dict(grid=False, halo=True, char=True, scale=0.075, half=236,
+                     cells=[(256 + 512 * c, 256 + 512 * r) for r in range(4) for c in range(4)]),
     'relogio': dict(grid=True, ref=0, target=84, char=True, circle=186,
                     cells=[(x, y) for y in (352, 794, 1282, 1748) for x in (254, 636, 1028, 1414, 1790)]),
     # cenário
@@ -79,6 +82,7 @@ NAMES = {
     'rei-emocoes': ['corpo-neutro', 'corpo-feliz', 'corpo-assustado', 'corpo-bravo', 'corpo-cansado'],
     'rei-retratos': ['retrato-neutro', 'retrato-feliz', 'retrato-assustado', 'retrato-bravo', 'retrato-cansado'],
     'relogio': [f'relogio-{i}' for i in range(20)],
+    'vagalume': [f'vagalume-{i}' for i in range(16)],
     'arvores': ['arvore-carvalho', 'arvore-copa', 'arvore-betula', 'arvore-pinheiro', 'arbusto-0', 'arbusto-1',
                 'arbusto-2', 'arvore-pinheiro-2', 'arvore-seca', 'arvore-outono', 'arvore-pinheiro-outono',
                 'arvore-florida', 'arvore-pinheiro-neve', 'arvore-neve', 'toco', 'tronco', 'tronco-2', 'toco-broto'],
@@ -108,6 +112,15 @@ MANUAL = [
     ('vida', (1436, 276, 1597, 430), 'hp-vazio', None),
     ('vida', (100, 176, 218, 258), 'hp-rotulo', None),
     ('botao-pausa', (470, 470, 1580, 1580), 'botao-pausa', None),
+    # cavalo (mesma escala em todos os quadros)
+    ('cavalo', (130, 170, 400, 945), 'cavalo-baixo', 0.155),
+    ('cavalo', (570, 300, 1400, 860), 'cavalo-direita', 0.155),
+    ('cavalo', (1645, 120, 1910, 995), 'cavalo-cima', 0.155),
+    ('cavalo', (235, 1125, 1135, 1690), 'cavalo-esquerda', 0.155),
+    ('cavalo-comendo', (350, 90, 742, 985), 'cavalo-comer-baixo', 0.155),
+    ('cavalo-comendo', (1070, 320, 2020, 880), 'cavalo-comer-direita', 0.155),
+    ('cavalo-comendo', (36, 1270, 995, 1808), 'cavalo-comer-esquerda', 0.155),
+    ('cavalo-comendo', (1325, 1095, 1745, 1945), 'cavalo-comer-cima', 0.155),
 ]
 
 # Grades de tiles de chão: folha -> (colunas, linhas)
@@ -130,6 +143,7 @@ TARGET_H = {
     'desmaio-0': 72, 'desmaio-1': 62, 'desmaio-2': 36, 'desmaio-3': 36,
     'cama': 104, 'sonambulo-direita': 76, 'sonambulo-esquerda': 76,
     'olhos-fechados-baixo': 76, 'olhos-fechados-cima': 76,
+    'cavalo-baixo': 92, 'cavalo-cima': 100, 'cavalo-comer-baixo': 104, 'cavalo-comer-cima': 100,
     'hp-cheio': 30, 'hp-meio': 30, 'hp-vazio': 30, 'hp-rotulo': 18, 'botao-pausa': 44,
     'nadar-baixo': 50, 'nadar-cima-0': 54, 'nadar-cima-1': 54, 'nadar-cima-2': 54,
 }
@@ -189,12 +203,13 @@ def main():
     os.makedirs(OUT, exist_ok=True)
     sprites = {}
     for sheet, cfg in SHEETS.items():
-        a, fg = fg_mask(sheet, grid=cfg.get('grid', False), line_rgb=cfg.get('line_rgb'), glow=cfg.get('glow', False))
+        a, fg = fg_mask(sheet, grid=cfg.get('grid', False), line_rgb=cfg.get('line_rgb'), glow=cfg.get('glow', False), halo=cfg.get('halo', False))
         if cfg.get('water'):
             fg = key_water(a, fg)
         char = sheet.startswith('rei') or cfg.get('char', False)
         if 'cells' in cfg:  # grade fixa: recorta em volta de cada centro
-            boxes = [(x - 196, y - 200, x + 196, y + 200) for x, y in cfg['cells']]
+            hw = cfg.get('half', 196)
+            boxes = [(x - hw, y - hw - 4, x + hw, y + hw + 4) for x, y in cfg['cells']]
             if cfg.get('circle'):  # objeto redondo: descarta tudo fora do círculo
                 yy, xx = np.mgrid[0:fg.shape[0], 0:fg.shape[1]]
                 keep = np.zeros_like(fg)
@@ -222,9 +237,10 @@ def main():
 
     for sheet, box, name, s in MANUAL:
         # HUD: máscara estrita (o roxo-escuro dos corações vazios não é fundo)
-        a, fg = fg_mask(sheet, loose=sheet not in ('vida', 'botao-pausa'))
+        a, fg = fg_mask(sheet, loose=sheet not in ('vida', 'botao-pausa'),
+                        halo=sheet == 'cavalo-comendo')  # remove os cavalos "fantasma" rosados
         im = crop_rgba(a, fg, box)
-        if s is None:
+        if s is None or name in TARGET_H:
             s = TARGET_H[name] / im.height
         sprites[name] = resize(im, s)
 

@@ -309,8 +309,179 @@ function newPlayer() {
   };
 }
 
+// ------------------------------------------------------------
+//  Cavalos (passeiam pelo pasto e param para comer)
+// ------------------------------------------------------------
+const HORSE = {
+  walk: { down: 'cavalo-baixo', up: 'cavalo-cima', left: 'cavalo-esquerda', right: 'cavalo-direita' },
+  eat: { down: 'cavalo-comer-baixo', up: 'cavalo-comer-cima', left: 'cavalo-comer-esquerda', right: 'cavalo-comer-direita' },
+};
+const HORSE_SPEED = 45;
+
+function horseFoot(h) {
+  const side = h.facing === 'left' || h.facing === 'right';
+  const w = side ? 84 : 30;
+  const d = side ? 22 : 54;
+  return { x: h.x - w / 2, y: h.y - d, w, h: d };
+}
+
+function makeHorse(x, y) {
+  const h = {
+    sprite: 'cavalo-direita', x, y, scale: 1, solid: true, foot: [1, 1], kind: 'cavalo', talk: 'cavalo',
+    facing: Math.random() < 0.5 ? 'left' : 'right', mode: 'eat', modeT: rand(2, 6), tx: x, ty: y, horse: true,
+  };
+  h.fb = horseFoot(h);
+  return h;
+}
+
+function horseBlocked(h, x, y) {
+  const p = world.pasture;
+  if (x < p.x0 || x > p.x1 || y < p.y0 || y > p.y1) return true;
+  const nb = horseFoot({ x, y, facing: h.facing });
+  for (const o of world.objects) {
+    if (o === h) continue;
+    const f = footBox(o);
+    if (f && overlap(nb, f)) return true;
+  }
+  if (player && overlap(nb, { x: player.x - 12, y: player.y - 12, w: 24, h: 12 })) return true;
+  return false;
+}
+
+function pickHorseTarget(h) {
+  const p = world.pasture;
+  for (let i = 0; i < 10; i++) {
+    const tx = rand(p.x0 + 40, p.x1 - 40);
+    const ty = rand(p.y0 + 30, p.y1 - 10);
+    if (p.avoid.every((a) => Math.hypot(tx - a.x, ty - a.y) > a.r)) { h.tx = tx; h.ty = ty; return; }
+  }
+}
+
+function updateHorses(dt) {
+  for (const h of world.objects) {
+    if (!h.horse) continue;
+    h.modeT -= dt;
+    if (h.mode === 'walk') {
+      const dx = h.tx - h.x;
+      const dy = h.ty - h.y;
+      const d = Math.hypot(dx, dy);
+      if (d < 4 || h.modeT <= 0) {
+        h.mode = Math.random() < 0.65 ? 'eat' : 'idle';
+        h.modeT = h.mode === 'eat' ? rand(4, 9) : rand(1.5, 4);
+      } else {
+        // anda em "L": primeiro no eixo mais longo (fica bem com 4 direções)
+        const horiz = Math.abs(dx) > 6 && (Math.abs(dx) >= Math.abs(dy) || Math.abs(dy) <= 6);
+        const vx = horiz ? Math.sign(dx) * HORSE_SPEED : 0;
+        const vy = horiz ? 0 : Math.sign(dy) * HORSE_SPEED;
+        h.facing = horiz ? (vx > 0 ? 'right' : 'left') : (vy > 0 ? 'down' : 'up');
+        const nx = h.x + vx * dt;
+        const ny = h.y + vy * dt;
+        if (horseBlocked(h, nx, ny)) { h.mode = 'idle'; h.modeT = rand(0.5, 1.5); } else { h.x = nx; h.y = ny; }
+      }
+    } else if (h.modeT <= 0) {
+      h.mode = 'walk';
+      h.modeT = 12;
+      pickHorseTarget(h);
+    }
+    h.talk = h.mode === 'eat' ? 'cavaloComendo' : 'cavalo';
+    h.sprite = (h.mode === 'eat' ? HORSE.eat : HORSE.walk)[h.facing];
+    h.fb = horseFoot(h);
+  }
+}
+
+// ------------------------------------------------------------
+//  Vagalumes: bandos raros de 5+ que passeiam pelo mapa,
+//  principalmente à noite
+// ------------------------------------------------------------
+const FLY_FRAMES = ['vagalume-12', 'vagalume-13', 'vagalume-11', 'vagalume-10', 'vagalume-0', 'vagalume-4'];
+let swarms = [];
+let swarmCooldown = 20;
+
+function spawnSwarm() {
+  // nasce fora da tela, perto do jogador, e cruza em direção a um ponto do outro lado
+  const ang = rand(0, Math.PI * 2);
+  const dist = Math.max(VIEW_W, VIEW_H) * 0.65;
+  const cx = clamp(player.x + Math.cos(ang) * dist, T, world.w * T - T);
+  const cy = clamp(player.y + Math.sin(ang) * dist, 5 * T, world.h * T - T);
+  const tx = clamp(player.x - Math.cos(ang) * dist + rand(-200, 200), T, world.w * T - T);
+  const ty = clamp(player.y - Math.sin(ang) * dist + rand(-200, 200), 5 * T, world.h * T - T);
+  const n = 5 + Math.floor(Math.random() * 5);
+  const flies = [];
+  for (let i = 0; i < n; i++) {
+    flies.push({
+      ox: rand(-50, 50), oy: rand(-40, 40), ph: rand(0, 10), sp: rand(0.8, 1.6),
+      blink: rand(0, 6), blinkSp: rand(1.2, 2.4), x: cx, y: cy,
+    });
+  }
+  swarms.push({ x: cx, y: cy, tx, ty, flies, t: 0, life: rand(45, 80), seen: false });
+}
+
+function updateSwarms(dt) {
+  const night = game.night;
+  swarmCooldown -= dt;
+  // raro: em média ~1 bando a cada 1,5 min à noite e ~12 min de dia
+  const rate = night ? 1 / 90 : 1 / 720;
+  if (swarms.length === 0 && swarmCooldown <= 0 && Math.random() < rate * dt) {
+    spawnSwarm();
+    swarmCooldown = 30;
+  }
+  for (const s of swarms) {
+    s.t += dt;
+    const dx = s.tx - s.x;
+    const dy = s.ty - s.y;
+    const d = Math.hypot(dx, dy);
+    if (d < 40) { // chegou: escolhe outro ponto por perto
+      s.tx = clamp(s.x + rand(-500, 500), T, world.w * T - T);
+      s.ty = clamp(s.y + rand(-350, 350), 5 * T, world.h * T - T);
+    } else {
+      s.x += (dx / d) * 32 * dt;
+      s.y += (dy / d) * 32 * dt;
+    }
+    for (const f of s.flies) {
+      const k = s.t * f.sp + f.ph;
+      f.x = s.x + f.ox + Math.sin(k * 1.3) * 28 + Math.sin(k * 0.37) * 18;
+      f.y = s.y + f.oy + Math.cos(k * 1.1) * 18 + Math.sin(k * 0.53) * 12;
+      f.dx = Math.cos(k * 1.3) * 1.3;
+    }
+    if (!s.seen && Math.abs(s.x - player.x) < VIEW_W / 2 && Math.abs(s.y - player.y) < VIEW_H / 2) s.seen = true;
+  }
+  swarms = swarms.filter((s) => s.t < s.life);
+}
+
+function swarmAlpha(s) {
+  return clamp(Math.min(s.t / 3, (s.life - s.t) / 3), 0, 1);
+}
+
+function flyGlow(f) {
+  return 0.35 + 0.65 * Math.max(0, Math.sin(game.time * f.blinkSp + f.blink)); // pisca
+}
+
+function drawSwarms(cx, cy) {
+  for (const s of swarms) {
+    const a = swarmAlpha(s);
+    for (const f of s.flies) {
+      const x = f.x - cx;
+      const y = f.y - cy;
+      if (x < -40 || x > VIEW_W + 40 || y < -40 || y > VIEW_H + 40) continue;
+      const g = flyGlow(f) * a;
+      ctx.save();
+      ctx.globalCompositeOperation = 'lighter';
+      const grad = ctx.createRadialGradient(x, y - 4, 0, x, y - 4, 22);
+      grad.addColorStop(0, `rgba(230,255,120,${0.55 * g})`);
+      grad.addColorStop(1, 'rgba(230,255,120,0)');
+      ctx.fillStyle = grad;
+      ctx.fillRect(x - 22, y - 26, 44, 44);
+      ctx.restore();
+      const frame = FLY_FRAMES[Math.floor(game.time * 12 + f.ph * 3) % 2 + (g > 0.6 ? 2 : 0)];
+      drawSprite(frame, x, y + 8, { alpha: a, flip: f.dx < 0 });
+    }
+  }
+}
+
 function startGame() {
   world = buildWorld();
+  for (const h of world.horses) world.objects.push(makeHorse(h.x, h.y));
+  swarms = [];
+  swarmCooldown = 20;
   world.chestsTotal = world.objects.filter((o) => o.kind === 'bau').length;
   player = newPlayer();
   game.coins = 0;
@@ -328,6 +499,7 @@ function startGame() {
 //  Colisão
 // ------------------------------------------------------------
 function footBox(o) {
+  if (o.horse) return o.fb;
   if (!o.solid || !o.foot) return null;
   if (!o.fb) {
     const s = spriteSize(o.sprite);
@@ -812,6 +984,7 @@ function update(dt) {
 
   if (world && player && game.state !== 'title') {
     for (const o of world.objects) if (o.ringT > 0) o.ringT -= dt;
+    if (game.state !== 'pause') { updateHorses(dt); updateSwarms(dt); }
     updateParticles(dt);
     updateCamera(dt);
   }
@@ -952,6 +1125,9 @@ function drawNight(cx, cy, dark) {
     const ly = o.kind === 'fogo' ? o.y - 20 : o.y - s.h * o.scale * (lamp ? 0.8 : 0.3);
     lights.push({ x: o.x, y: ly, r: r * (o.kind === 'fogo' ? 1 + Math.sin(game.time * 13) * 0.05 : 1) });
   }
+  for (const sw of swarms) {
+    for (const f of sw.flies) lights.push({ x: f.x, y: f.y - 4, r: 46 * flyGlow(f) * swarmAlpha(sw), own: true });
+  }
   const visible = lights.filter((l) => {
     const x = l.x - cx;
     const y = l.y - cy;
@@ -988,6 +1164,7 @@ function interactLabel(o) {
   if (o.kind === 'casa') return 'Dormir';
   if (o.kind === 'sino') return 'Tocar';
   if (o.kind === 'poco') return 'Beber';
+  if (o.kind === 'cavalo') return 'Acariciar';
   return 'Ver';
 }
 
@@ -1023,6 +1200,7 @@ function drawWorld() {
 
   const dark = darkness();
   if (dark > 0.01) drawNight(cx, cy, dark);
+  drawSwarms(cx, cy);
 
   // indicador de interação
   if (game.state === 'play' && player.target && !busy() && !player.chestQuick) {
@@ -1280,5 +1458,5 @@ requestAnimationFrame(frame);
 
 // Exposto para depuração/testes
 window.BlueCastle = {
-  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep, setClock, hurt,
+  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep, setClock, hurt, spawnSwarm, get swarms() { return swarms; },
 };

@@ -7,6 +7,8 @@ Você controla o Rei Azul em uma vila com praça, feira, catedral, rio, fazenda 
 - **Relógio:** o dia dura 12 minutos reais e a noite, outros 12. O relógio no canto superior direito avança com o tempo, e há crepúsculo e amanhecer graduais. À noite os prédios mudam de sprite e as luzes se acendem. Dormir em casa pula para o próximo período.
 - **Vida:** a barra de corações fica no canto inferior esquerdo e sobe e desce em meios corações. A fogueira tira ½ coração, a poção cura 2 corações e a água do poço cura 1.
 - **Morte:** com a vida zerada, o rei desmaia e aparece a tela "Você morreu... Renasça.". Ao confirmar, ele renasce em casa.
+- **Cavalos:** dois cavalos ficam no pasto ao sul do rio. Eles andam nas 4 direções, param para comer grama e desviam da fogueira. Dá para acariciar com E.
+- **Vagalumes:** bandos raros de 5 a 9 vagalumes cruzam o mapa piscando. Aparecem principalmente à noite (cerca de 1 a cada 1,5 min) e quase nunca de dia (cerca de 1 a cada 12 min).
 - **Pausa:** o botão no canto superior esquerdo funciona com clique ou toque (ou P / Esc).
 
 ## Como jogar

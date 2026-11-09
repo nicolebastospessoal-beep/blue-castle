@@ -134,9 +134,17 @@ def glow_mask(a):
     return lilac | pink
 
 
-def fg_mask(name, loose=True, grid=False, line_rgb=None, glow=False):
+def halo_mask(a):
+    """Halo de luz misturado ao magenta (vermelho alto, azul >= verde)."""
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    return (r >= 195) & (b >= 140) & (b >= g - 5) & (r - g > 40)
+
+
+def fg_mask(name, loose=True, grid=False, line_rgb=None, glow=False, halo=False):
     a = load(name)
     bg = bg_mask(a, loose)
+    if halo:
+        bg |= halo_mask(a)
     if glow:
         bg |= glow_mask(a)
     if line_rgb is not None:

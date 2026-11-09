@@ -195,6 +195,9 @@ function buildWorld() {
   return {
     w: MAP_W, h: MAP_H, ground, tiles, objects,
     spawn: { x: 4.2 * T, y: 16.2 * T },
+    // pasto dos cavalos (em px) e pontos a evitar
+    pasture: { x0: 23.4 * T, y0: 25.7 * T, x1: 29.6 * T, y1: 30.6 * T, avoid: [{ x: 27.5 * T, y: 28.4 * T, r: 90 }] },
+    horses: [{ x: 24.5 * T, y: 27 * T }, { x: 28.6 * T, y: 30 * T }],
     home: { x: 4.2 * T, y: 15.6 * T },
   };
 }
@@ -224,6 +227,9 @@ const DIALOGS = {
   semPocao: [['cansado', 'Não tenho nenhuma poção...']],
   vidaCheia: [['neutro', 'Estou bem, não preciso de poção agora.']],
   acordou: [['cansado', 'Ugh... Acordei em casa. Preciso tomar mais cuidado.']],
+  cavalo: [['feliz', 'Um cavalo manso. Ele bufa satisfeito com o carinho.']],
+  cavaloComendo: [['neutro', 'Ele está ocupado comendo grama. Melhor não atrapalhar.']],
+  vagalumes: [['feliz', 'Vagalumes! Dizem que dá sorte ver um bando deles.']],
   todosBaus: [['feliz', 'Encontrei todos os tesouros da vila! Que dia!']],
 };
 
