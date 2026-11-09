@@ -1,5 +1,5 @@
 'use strict';
-/* global ATLAS, TILES, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
+/* global ATLAS, TILES, MANCHAS, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
 
 // ============================================================
 //  Blue Castle — RPG 2D visto de cima
@@ -48,12 +48,18 @@ const storage = {
 // ------------------------------------------------------------
 //  Imagens
 // ------------------------------------------------------------
-const images = { atlas: new Image(), tiles: new Image(), morte: new Image() };
+const images = {
+  atlas: new Image(), tiles: new Image(), morte: new Image(),
+  grama: new Image(), manchas: new Image(), pedra: new Image(),
+};
 let loaded = 0;
 for (const img of Object.values(images)) img.onload = () => { loaded += 1; };
 images.atlas.src = 'assets/game/atlas.webp';
 images.tiles.src = 'assets/game/tiles.webp';
 images.morte.src = 'assets/game/tela-morte.webp';
+images.grama.src = 'assets/game/textura-grama.webp';
+images.manchas.src = 'assets/game/manchas-terra.webp';
+images.pedra.src = 'assets/game/textura-pedra.webp';
 
 function spriteSize(name) {
   const r = ATLAS[name];
@@ -943,7 +949,7 @@ function update(dt) {
 
   switch (game.state) {
     case 'loading':
-      if (loaded >= 3) game.state = 'title';
+      if (loaded >= Object.keys(images).length) game.state = 'title';
       break;
     case 'title':
       if (Input.hit('action') || Input.hit('attack')) { Sound.blip(); startGame(); }
@@ -993,19 +999,149 @@ function update(dt) {
 // ============================================================
 //  Renderização
 // ============================================================
+// ------------------------------------------------------------
+//  Chão "natural": pintado uma vez num canvas do tamanho do mapa.
+//  Grama e pedra usam texturas contínuas com bordas irregulares
+//  (ruído), e a grama ganha manchas de terra orgânicas.
+// ------------------------------------------------------------
+function hashN(x, y, seed) {
+  let h = (x * 374761393 + y * 668265263 + seed * 2147483647) | 0;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function valueNoise(x, y, seed) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const fx = x - xi;
+  const fy = y - yi;
+  const sx = fx * fx * (3 - 2 * fx);
+  const sy = fy * fy * (3 - 2 * fy);
+  const a = hashN(xi, yi, seed);
+  const b = hashN(xi + 1, yi, seed);
+  const c = hashN(xi, yi + 1, seed);
+  const d = hashN(xi + 1, yi + 1, seed);
+  return a + (b - a) * sx + (c - a) * sy + (a - b - c + d) * sx * sy;
+}
+
+function fbm(x, y, seed) {
+  return valueNoise(x, y, seed) * 0.65 + valueNoise(x * 2.3, y * 2.3, seed + 7) * 0.35;
+}
+
+const BLOCK = 4; // resolução das bordas (px) — mantém o visual de pixel art
+
+function makeMask(w, h, test) {
+  const m = document.createElement('canvas');
+  m.width = Math.ceil(w / BLOCK);
+  m.height = Math.ceil(h / BLOCK);
+  const mc = m.getContext('2d');
+  const img = mc.createImageData(m.width, m.height);
+  for (let by = 0; by < m.height; by++) {
+    for (let bx = 0; bx < m.width; bx++) {
+      if (test(bx * BLOCK + BLOCK / 2, by * BLOCK + BLOCK / 2)) img.data[(by * m.width + bx) * 4 + 3] = 255;
+    }
+  }
+  mc.putImageData(img, 0, 0);
+  return m;
+}
+
+function layer(w, h, pattern, mask) {
+  const c = document.createElement('canvas');
+  c.width = w;
+  c.height = h;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  g.fillStyle = g.createPattern(pattern, 'repeat');
+  g.fillRect(0, 0, w, h);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(mask, 0, 0, w, h);
+  return c;
+}
+
+function buildGroundCanvas(wd) {
+  const W = wd.w * T;
+  const H = wd.h * T;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const per = TILES.perRow;
+  // 1) tiles (terra, areia, água, plantação, flores...) como base
+  for (let ty = 0; ty < wd.h; ty++) {
+    for (let tx = 0; tx < wd.w; tx++) {
+      const k = TILES.tiles[wd.tiles[ty][tx]];
+      if (k !== undefined) g.drawImage(images.tiles, (k % per) * T, Math.floor(k / per) * T, T, T, tx * T, ty * T, T, T);
+    }
+  }
+  const at = (px, py) => {
+    const tx = clamp(Math.floor(px / T), 0, wd.w - 1);
+    const ty = clamp(Math.floor(py / T), 0, wd.h - 1);
+    return wd.ground[ty][tx];
+  };
+  // material com a borda "tremida" por ruído (água nunca é invadida)
+  const wobble = (px, py, amp) => {
+    // duas escalas de ruído: curvas largas + recortes miúdos
+    const dx = (valueNoise(px / 90, py / 90, 11) - 0.5) * amp + (valueNoise(px / 22, py / 22, 31) - 0.5) * amp * 0.45;
+    const dy = (valueNoise(px / 90, py / 90, 23) - 0.5) * amp + (valueNoise(px / 22, py / 22, 37) - 0.5) * amp * 0.45;
+    return at(px + dx, py + dy);
+  };
+  const STONE = '#';
+  const GRASS = '.';
+  const grassMask = makeMask(W, H, (x, y) => {
+    const here = at(x, y);
+    if (isWater(here) || here === 'b') return false;
+    return wobble(x, y, 80) === GRASS;
+  });
+  const stoneMask = makeMask(W, H, (x, y) => !isWater(at(x, y)) && wobble(x, y, 56) === STONE);
+
+  // 2) grama contínua
+  g.drawImage(layer(W, H, images.grama, grassMask), 0, 0);
+  // 3) manchas de terra carimbadas na grama, em grupos (onde o ruído é alto)
+  const rnd = mulberry32(77);
+  let placed = 0;
+  for (let i = 0; i < 900 && placed < 70; i++) {
+    const m = MANCHAS[Math.floor(rnd() * MANCHAS.length)];
+    const x = rnd() * W;
+    const y = rnd() * H;
+    if (fbm(x / 300, y / 300, 5) < 0.55) continue;
+    // a mancha inteira precisa estar na grama, longe da estrada
+    let ok = true;
+    for (const [fx, fy] of [[0, 0], [1, 0], [0, 1], [1, 1], [0.5, 0.5]]) {
+      const px = x + (fx - 0.5) * m[2] * 1.3;
+      const py = y + (fy - 0.5) * m[3] * 1.3;
+      if (at(px, py) !== GRASS || wobble(px, py, 80) !== GRASS) { ok = false; break; }
+    }
+    if (!ok) continue;
+    g.drawImage(images.manchas, m[0], m[1], m[2], m[3], Math.round(x - m[2] / 2), Math.round(y - m[3] / 2), m[2], m[3]);
+    placed += 1;
+  }
+  // 4) sombra na borda da pedra e a própria pedra
+  const shade = document.createElement('canvas');
+  shade.width = W;
+  shade.height = H;
+  const sg = shade.getContext('2d');
+  sg.imageSmoothingEnabled = false;
+  sg.fillStyle = 'rgba(20,24,16,0.45)';
+  sg.fillRect(0, 0, W, H);
+  sg.globalCompositeOperation = 'destination-in';
+  sg.drawImage(stoneMask, 0, 0, W, H);
+  for (const [ox, oy] of [[-BLOCK, 0], [BLOCK, 0], [0, -BLOCK], [0, BLOCK]]) g.drawImage(shade, ox, oy);
+  g.drawImage(layer(W, H, images.pedra, stoneMask), 0, 0);
+  return c;
+}
+
 function drawGround(cx, cy) {
+  if (!world.groundCanvas) world.groundCanvas = buildGroundCanvas(world);
+  const sx = Math.max(0, cx);
+  const sy = Math.max(0, cy);
+  const sw = Math.min(VIEW_W, world.w * T - sx);
+  const sh = Math.min(VIEW_H, world.h * T - sy);
+  ctx.drawImage(world.groundCanvas, sx, sy, sw, sh, sx - cx, sy - cy, sw, sh);
   const x0 = Math.max(0, Math.floor(cx / T));
   const y0 = Math.max(0, Math.floor(cy / T));
   const x1 = Math.min(world.w - 1, Math.floor((cx + VIEW_W) / T));
   const y1 = Math.min(world.h - 1, Math.floor((cy + VIEW_H) / T));
-  const per = TILES.perRow;
-  for (let ty = y0; ty <= y1; ty++) {
-    for (let tx = x0; tx <= x1; tx++) {
-      const k = TILES.tiles[world.tiles[ty][tx]];
-      if (k === undefined) continue;
-      ctx.drawImage(images.tiles, (k % per) * T, Math.floor(k / per) * T, T, T, tx * T - cx, ty * T - cy, T, T);
-    }
-  }
   // reflexos na água
   ctx.fillStyle = 'rgba(255,255,255,0.08)';
   for (let ty = y0; ty <= y1; ty++) {

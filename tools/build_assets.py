@@ -313,6 +313,9 @@ def main():
 SCREENS = {'tela-morte': 960}
 # Imagens de interface usadas fora do canvas (HTML), com fundo transparente: nome -> lado em px
 UI_IMAGES = {'direcional': 360}
+# Texturas contínuas de chão (repetem sem emenda): nome -> lado em px de jogo
+TEXTURES = {'textura-grama': 448, 'textura-pedra': 320}
+PATCH_SCALE = 448 / 2048  # manchas de terra na mesma escala da grama
 
 
 def build_screens():
@@ -323,6 +326,40 @@ def build_screens():
         im = Image.fromarray(a.astype(np.uint8), 'RGB').resize((size, size), Image.BOX)
         im.save(f'{OUT}/{name}.webp', quality=90, method=6)
         print(f'tela: {name}')
+    for name, size in TEXTURES.items():
+        a = load(name)
+        Image.fromarray(a.astype(np.uint8), 'RGB').resize((size, size), Image.BOX).save(
+            f'{OUT}/{name}.webp', quality=92, method=6)
+        print(f'textura: {name}')
+    # Manchas de terra: recorta cada "ilha" de terra (com a franja de grama) da textura
+    a = load('textura-grama-terra')
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    dirt = (r > 150) & (r > g + 40) & (g > 70) & (b < 120)
+    # inclui uma franja ao redor (o capim que cobre a borda)
+    halo = dirt.copy()
+    for _ in range(14):
+        halo = halo | np.roll(halo, 1, 0) | np.roll(halo, -1, 0) | np.roll(halo, 1, 1) | np.roll(halo, -1, 1)
+    patches = []
+    for (x0, y0, x1, y1) in components(dirt, step=8, merge=1, min_area=40):
+        if x0 <= 8 or y0 <= 8 or x1 >= a.shape[1] - 8 or y1 >= a.shape[0] - 8:
+            continue  # cortadas pela borda da imagem
+        x0, y0, x1, y1 = max(0, x0 - 40), max(0, y0 - 40), min(a.shape[1], x1 + 40), min(a.shape[0], y1 + 40)
+        sub = halo[y0:y1, x0:x1]
+        al = (sub * 255).astype(np.uint8)
+        im = Image.fromarray(np.dstack([a[y0:y1, x0:x1].astype(np.uint8), al]), 'RGBA')
+        patches.append(resize(im, PATCH_SCALE))
+    x = 0
+    H = max(p.height for p in patches)
+    sheet = Image.new('RGBA', (sum(p.width + 2 for p in patches), H), (0, 0, 0, 0))
+    meta = []
+    for p in patches:
+        sheet.paste(p, (x, 0))
+        meta.append([x, 0, p.width, p.height])
+        x += p.width + 2
+    sheet.save(f'{OUT}/manchas-terra.webp', lossless=True, method=6)
+    with open(f'{OUT}/manchas-terra.js', 'w') as f:
+        f.write('window.MANCHAS = ' + json.dumps(meta) + ';\n')
+    print(f'manchas de terra: {len(patches)}')
     for name, size in UI_IMAGES.items():
         a, fg = fg_mask(name)
         ys, xs = np.nonzero(fg)
