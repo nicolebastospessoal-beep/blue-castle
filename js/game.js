@@ -1,5 +1,5 @@
 'use strict';
-/* global ATLAS, TILES, MANCHAS, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
+/* global ATLAS, TILES, MANCHAS, TRANSICAO, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
 
 // ============================================================
 //  Blue Castle — RPG 2D visto de cima
@@ -50,7 +50,7 @@ const storage = {
 // ------------------------------------------------------------
 const images = {
   atlas: new Image(), tiles: new Image(), morte: new Image(),
-  grama: new Image(), manchas: new Image(), pedra: new Image(),
+  grama: new Image(), manchas: new Image(), pedra: new Image(), transV: new Image(), transH: new Image(),
 };
 let loaded = 0;
 for (const img of Object.values(images)) img.onload = () => { loaded += 1; };
@@ -60,6 +60,8 @@ images.morte.src = 'assets/game/tela-morte.webp';
 images.grama.src = 'assets/game/textura-grama.webp';
 images.manchas.src = 'assets/game/manchas-terra.webp';
 images.pedra.src = 'assets/game/textura-pedra.webp';
+images.transV.src = 'assets/game/transicao-v.webp';
+images.transH.src = 'assets/game/transicao-h.webp';
 
 function spriteSize(name) {
   const r = ATLAS[name];
@@ -1036,9 +1038,13 @@ function makeMask(w, h, test) {
   m.height = Math.ceil(h / BLOCK);
   const mc = m.getContext('2d');
   const img = mc.createImageData(m.width, m.height);
+  m.bits = new Uint8Array(m.width * m.height);
   for (let by = 0; by < m.height; by++) {
     for (let bx = 0; bx < m.width; bx++) {
-      if (test(bx * BLOCK + BLOCK / 2, by * BLOCK + BLOCK / 2)) img.data[(by * m.width + bx) * 4 + 3] = 255;
+      if (test(bx * BLOCK + BLOCK / 2, by * BLOCK + BLOCK / 2)) {
+        img.data[(by * m.width + bx) * 4 + 3] = 255;
+        m.bits[by * m.width + bx] = 1;
+      }
     }
   }
   mc.putImageData(img, 0, 0);
@@ -1055,6 +1061,81 @@ function layer(w, h, pattern, mask) {
   g.fillRect(0, 0, w, h);
   g.globalCompositeOperation = 'destination-in';
   g.drawImage(mask, 0, 0, w, h);
+  return c;
+}
+
+// Faixas de transição em cada lado (sem girar: as pedras continuam "deitadas")
+function edgeStrips() {
+  const flip = (src, fx, fy) => {
+    const c = document.createElement('canvas');
+    c.width = src.width;
+    c.height = src.height;
+    const g = c.getContext('2d');
+    g.imageSmoothingEnabled = false;
+    g.setTransform(fx ? -1 : 1, 0, 0, fy ? -1 : 1, fx ? src.width : 0, fy ? src.height : 0);
+    g.drawImage(src, 0, 0);
+    return c;
+  };
+  return {
+    right: images.transV, left: flip(images.transV, true, false),
+    down: images.transH, up: flip(images.transH, false, true),
+  };
+}
+
+function buildEdges(wd, stoneMask, grassMask) {
+  const S = edgeStrips();
+  const V = TRANSICAO.v; // pedra à esquerda, grama à direita
+  const Hh = TRANSICAO.h; // pedra em cima, grama embaixo
+  const W = wd.w * T;
+  const H = wd.h * T;
+  const c = document.createElement('canvas');
+  c.width = W;
+  c.height = H;
+  const g = c.getContext('2d');
+  g.imageSmoothingEnabled = false;
+  const kind = (tx, ty) => (tx < 0 || ty < 0 || tx >= wd.w || ty >= wd.h ? null : wd.ground[ty][tx]);
+  const grassy = (k) => k === '.';
+  // desenha um trecho de T px da faixa, continuando a arte ao longo da borda
+  const vert = (strip, x, y) => {
+    let off = y % V.h;
+    let done = 0;
+    while (done < T) {
+      const n = Math.min(T - done, V.h - off);
+      g.drawImage(strip, 0, off, V.w, n, x, y + done, V.w, n);
+      done += n;
+      off = 0;
+    }
+  };
+  const horiz = (strip, x, y) => {
+    let off = x % Hh.w;
+    let done = 0;
+    while (done < T) {
+      const n = Math.min(T - done, Hh.w - off);
+      g.drawImage(strip, off, 0, n, Hh.h, x + done, y, n, Hh.h);
+      done += n;
+      off = 0;
+    }
+  };
+  for (let ty = 0; ty < wd.h; ty++) {
+    for (let tx = 0; tx < wd.w; tx++) {
+      if (kind(tx, ty) !== '#') continue;
+      const x = tx * T;
+      const y = ty * T;
+      if (grassy(kind(tx + 1, ty))) vert(S.right, x + T - V.edge, y);
+      if (grassy(kind(tx - 1, ty))) vert(S.left, x - (V.w - V.edge), y);
+      if (grassy(kind(tx, ty + 1))) horiz(S.down, x, y + T - Hh.edge);
+      if (grassy(kind(tx, ty - 1))) horiz(S.up, x, y - (Hh.h - Hh.edge));
+    }
+  }
+  // não invade água, flores, terra...
+  const keep = document.createElement('canvas');
+  keep.width = stoneMask.width;
+  keep.height = stoneMask.height;
+  const kg = keep.getContext('2d');
+  kg.drawImage(stoneMask, 0, 0);
+  kg.drawImage(grassMask, 0, 0);
+  g.globalCompositeOperation = 'destination-in';
+  g.drawImage(keep, 0, 0, W, H);
   return c;
 }
 
@@ -1090,10 +1171,11 @@ function buildGroundCanvas(wd) {
   const GRASS = '.';
   const grassMask = makeMask(W, H, (x, y) => {
     const here = at(x, y);
-    if (isWater(here) || here === 'b') return false;
-    return wobble(x, y, 80) === GRASS;
+    if (isWater(here) || here === 'b' || here === STONE) return false;
+    const w = wobble(x, y, 80);
+    return w === GRASS || w === STONE; // a borda com a pedra é feita pela faixa de transição
   });
-  const stoneMask = makeMask(W, H, (x, y) => !isWater(at(x, y)) && wobble(x, y, 56) === STONE);
+  const stoneMask = makeMask(W, H, (x, y) => at(x, y) === STONE);
 
   // 2) grama contínua
   g.drawImage(layer(W, H, images.grama, grassMask), 0, 0);
@@ -1116,18 +1198,10 @@ function buildGroundCanvas(wd) {
     g.drawImage(images.manchas, m[0], m[1], m[2], m[3], Math.round(x - m[2] / 2), Math.round(y - m[3] / 2), m[2], m[3]);
     placed += 1;
   }
-  // 4) sombra na borda da pedra e a própria pedra
-  const shade = document.createElement('canvas');
-  shade.width = W;
-  shade.height = H;
-  const sg = shade.getContext('2d');
-  sg.imageSmoothingEnabled = false;
-  sg.fillStyle = 'rgba(20,24,16,0.45)';
-  sg.fillRect(0, 0, W, H);
-  sg.globalCompositeOperation = 'destination-in';
-  sg.drawImage(stoneMask, 0, 0, W, H);
-  for (const [ox, oy] of [[-BLOCK, 0], [BLOCK, 0], [0, -BLOCK], [0, BLOCK]]) g.drawImage(shade, ox, oy);
+  // 4) calçamento
   g.drawImage(layer(W, H, images.pedra, stoneMask), 0, 0);
+  // 5) faixa de transição pedra -> grama ao longo de toda a borda
+  g.drawImage(buildEdges(wd, stoneMask, grassMask), 0, 0);
   return c;
 }
 

@@ -180,6 +180,33 @@ def fill_holes(rgb, al, radius=3):
     return rgb, al
 
 
+def transition_strip(a):
+    """Recebe um recorte com pedra à esquerda e grama à direita; descarta as pedras
+    que tocam a borda esquerda (e o rejunte em volta) e devolve RGBA."""
+    from collections import deque
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    dark = np.maximum(np.maximum(r, g), b) < 75
+    green = (g > r + 25) & (g > b + 15)
+    stone = ~dark & ~green
+    H0, W0 = stone.shape
+    cut = np.zeros(H0, int)
+    lab = np.zeros(stone.shape, bool)
+    for y0 in range(H0):
+        if stone[y0, 0] and not lab[y0, 0]:
+            q = deque([(y0, 0)])
+            lab[y0, 0] = True
+            while q:
+                y, x = q.popleft()
+                cut[y] = max(cut[y], x)
+                for ny, nx in ((y + 1, x), (y - 1, x), (y, x + 1), (y, x - 1)):
+                    if 0 <= ny < H0 and 0 <= nx < W0 and stone[ny, nx] and not lab[ny, nx]:
+                        lab[ny, nx] = True
+                        q.append((ny, nx))
+    cut = np.maximum.reduce([np.roll(cut, k) for k in range(-10, 11)]) + 5
+    alpha = (np.arange(W0)[None, :] > cut[:, None]).astype(np.uint8) * 255
+    return Image.fromarray(np.dstack([a.astype(np.uint8), alpha]), 'RGBA')
+
+
 def resize(im, s):
     nw, nh = max(1, round(im.width * s)), max(1, round(im.height * s))
     small = im.convert('RGBa').resize((nw, nh), Image.BOX).convert('RGBA')
@@ -360,6 +387,33 @@ def build_screens():
     with open(f'{OUT}/manchas-terra.js', 'w') as f:
         f.write('window.MANCHAS = ' + json.dumps(meta) + ';\n')
     print(f'manchas de terra: {len(patches)}')
+    # Faixas de transição pedra -> grama.
+    #   v: pedra à esquerda, grama à direita (folha transicao-pedra-grama)
+    #   h: pedra em cima, grama embaixo (quadro inferior esquerdo da folha de cantos)
+    # As pedras cortadas pela borda do recorte são descartadas, para a faixa
+    # não cortar nenhuma pedra no meio; a ponta é espelhada (ida e volta) para
+    # repetir sem emenda ao longo da borda.
+    sc = 0.18
+    meta = {}
+    va = load('transicao-pedra-grama')[:, 700:1500]
+    ha = load('transicao-pedra-grama-cantos')[1250:2040, 8:1005]
+    for key, arr, boundary in (('v', va, 860 - 700), ('h', np.transpose(ha, (1, 0, 2)), 1400 - 1250)):
+        strip = transition_strip(arr.astype(np.int16))  # pedra sempre à esquerda aqui
+        im = resize(strip, sc)
+        if key == 'h':
+            im = im.transpose(Image.Transpose.TRANSPOSE)
+            loop = Image.new('RGBA', (im.width * 2, im.height))
+            loop.paste(im, (0, 0))
+            loop.paste(im.transpose(Image.Transpose.FLIP_LEFT_RIGHT), (im.width, 0))
+        else:
+            loop = Image.new('RGBA', (im.width, im.height * 2))
+            loop.paste(im, (0, 0))
+            loop.paste(im.transpose(Image.Transpose.FLIP_TOP_BOTTOM), (0, im.height))
+        loop.save(f'{OUT}/transicao-{key}.webp', lossless=True, method=6)
+        meta[key] = {'edge': round(boundary * sc), 'w': loop.width, 'h': loop.height}
+    with open(f'{OUT}/transicao.js', 'w') as f:
+        f.write('window.TRANSICAO = ' + json.dumps(meta) + ';\n')
+    print('transição:', meta)
     for name, size in UI_IMAGES.items():
         a, fg = fg_mask(name)
         ys, xs = np.nonzero(fg)
