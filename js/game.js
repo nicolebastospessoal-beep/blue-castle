@@ -1,5 +1,5 @@
 'use strict';
-/* global ATLAS, TILES, MANCHAS, TRANSICAO, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
+/* global ATLAS, TILES, MANCHAS, TRANSICAO, CHUVA, buildWorld, DIALOGS, T, isWater, NIGHT_SPRITES, LIGHTS */
 
 // ============================================================
 //  Blue Castle — RPG 2D visto de cima
@@ -50,7 +50,8 @@ const storage = {
 // ------------------------------------------------------------
 const images = {
   atlas: new Image(), tiles: new Image(), morte: new Image(),
-  grama: new Image(), manchas: new Image(), pedra: new Image(), transV: new Image(), transH: new Image(),
+  grama: new Image(), manchas: new Image(), pedra: new Image(), transV: new Image(), transH: new Image(), musgo: new Image(), ilha: new Image(),
+  chuva: new Image(), respingos: new Image(),
 };
 let loaded = 0;
 for (const img of Object.values(images)) img.onload = () => { loaded += 1; };
@@ -62,6 +63,10 @@ images.manchas.src = 'assets/game/manchas-terra.webp';
 images.pedra.src = 'assets/game/textura-pedra.webp';
 images.transV.src = 'assets/game/transicao-v.webp';
 images.transH.src = 'assets/game/transicao-h.webp';
+images.musgo.src = 'assets/game/decal-musgo.webp';
+images.ilha.src = 'assets/game/decal-ilha.webp';
+images.chuva.src = 'assets/game/chuva-camada.webp';
+images.respingos.src = 'assets/game/chuva-respingos.webp';
 
 function spriteSize(name) {
   const r = ATLAS[name];
@@ -428,7 +433,7 @@ function updateSwarms(dt) {
   swarmCooldown -= dt;
   // raro: em média ~1 bando a cada 1,5 min à noite e ~12 min de dia
   const rate = night ? 1 / 90 : 1 / 720;
-  if (swarms.length === 0 && swarmCooldown <= 0 && Math.random() < rate * dt) {
+  if (swarms.length === 0 && swarmCooldown <= 0 && weather.k < 0.2 && Math.random() < rate * dt) {
     spawnSwarm();
     swarmCooldown = 30;
   }
@@ -924,6 +929,91 @@ function tickClock(dt) {
 }
 
 // ------------------------------------------------------------
+//  Chuva: começa de vez em quando, dura alguns minutos e passa
+// ------------------------------------------------------------
+const weather = { raining: false, k: 0, timer: rand(150, 360), splashes: [], sound: null };
+
+function setRain(on) {
+  weather.raining = on;
+  weather.timer = on ? rand(90, 240) : rand(240, 600); // chuva: 1,5–4 min; intervalo: 4–10 min
+}
+
+function rainSound(k) {
+  if (!Sound.ctx) return;
+  if (!weather.sound) {
+    const c = Sound.ctx;
+    const n = c.sampleRate * 2;
+    const buf = c.createBuffer(1, n, c.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+    const src = c.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    const f = c.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.value = 1400;
+    const gn = c.createGain();
+    gn.gain.value = 0;
+    src.connect(f).connect(gn).connect(c.destination);
+    src.start();
+    weather.sound = gn;
+  }
+  weather.sound.gain.value = Sound.muted || game.state === 'pause' ? 0 : 0.05 * k;
+}
+
+function updateWeather(dt) {
+  weather.timer -= dt;
+  if (weather.timer <= 0) setRain(!weather.raining);
+  weather.k = clamp(weather.k + (weather.raining ? dt / 8 : -dt / 8), 0, 1); // entra e sai devagar
+  if (weather.k > 0.05) {
+    // respingos no chão e ondinhas na água, ao redor da tela
+    const n = weather.k * 40 * dt;
+    for (let i = 0; i < n + (Math.random() < n % 1 ? 1 : 0); i++) {
+      const x = camera.x + rand(0, VIEW_W);
+      const y = camera.y + rand(0, VIEW_H);
+      const water = isWater(groundAt(x, y));
+      const list = CHUVA.respingos;
+      // primeiros quadros = coroas (chão), últimos = ondinhas (água)
+      const idx = water ? 4 + Math.floor(Math.random() * (list.length - 4)) : Math.floor(Math.random() * 4);
+      weather.splashes.push({ x, y, idx, t: 0, life: water ? 0.7 : 0.3 });
+    }
+  }
+  for (const sp of weather.splashes) sp.t += dt;
+  weather.splashes = weather.splashes.filter((sp) => sp.t < sp.life);
+  rainSound(weather.k);
+}
+
+function drawRain(cx, cy) {
+  const k = weather.k;
+  if (k <= 0.01) return;
+  // céu fechado
+  ctx.fillStyle = `rgba(40,55,80,${0.22 * k})`;
+  ctx.fillRect(0, 0, VIEW_W, VIEW_H);
+  // respingos
+  for (const sp of weather.splashes) {
+    const r = CHUVA.respingos[sp.idx];
+    const p = sp.t / sp.life;
+    const s = 0.6 + p * 0.6;
+    ctx.globalAlpha = k * (1 - p) * 0.9;
+    ctx.drawImage(images.respingos, r[0], r[1], r[2], r[3],
+      Math.round(sp.x - cx - (r[2] * s) / 2), Math.round(sp.y - cy - r[3] * s), Math.round(r[2] * s), Math.round(r[3] * s));
+  }
+  // duas camadas de gotas caindo na diagonal (a da frente mais rápida)
+  const t = game.time;
+  for (const [speed, alpha, scale] of [[520, 0.28, 1], [820, 0.45, 1.5]]) {
+    const w = CHUVA.camada[0] * scale;
+    const h = CHUVA.camada[1] * scale;
+    const ox = ((((-cx * 1.0) - t * speed * 0.38) % w) + w) % w;
+    const oy = ((((-cy * 1.0) + t * speed) % h) + h) % h;
+    ctx.globalAlpha = alpha * k;
+    for (let x = ox - w; x < VIEW_W; x += w) {
+      for (let y = oy - h; y < VIEW_H; y += h) ctx.drawImage(images.chuva, Math.round(x), Math.round(y), Math.round(w), Math.round(h));
+    }
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ------------------------------------------------------------
 //  Câmera
 // ------------------------------------------------------------
 function camTarget() {
@@ -992,7 +1082,7 @@ function update(dt) {
 
   if (world && player && game.state !== 'title') {
     for (const o of world.objects) if (o.ringT > 0) o.ringT -= dt;
-    if (game.state !== 'pause') { updateHorses(dt); updateSwarms(dt); }
+    if (game.state !== 'pause') { updateHorses(dt); updateSwarms(dt); updateWeather(dt); } else rainSound(0);
     updateParticles(dt);
     updateCamera(dt);
   }
@@ -1202,6 +1292,31 @@ function buildGroundCanvas(wd) {
   g.drawImage(layer(W, H, images.pedra, stoneMask), 0, 0);
   // 5) faixa de transição pedra -> grama ao longo de toda a borda
   g.drawImage(buildEdges(wd, stoneMask, grassMask), 0, 0);
+  // 6) variações: musgo crescendo entre as pedras e pedras soltas no gramado
+  const r2 = mulberry32(99);
+  const kindAt = (tx, ty) => (tx < 0 || ty < 0 || tx >= wd.w || ty >= wd.h ? null : wd.ground[ty][tx]);
+  const all = (tx, ty, k, rad) => {
+    for (let dy = -rad; dy <= rad; dy++) for (let dx = -rad; dx <= rad; dx++) if (kindAt(tx + dx, ty + dy) !== k) return false;
+    return true;
+  };
+  for (let ty = 0; ty < wd.h; ty++) {
+    for (let tx = 0; tx < wd.w; tx++) {
+      const k = kindAt(tx, ty);
+      const cx = tx * T + T / 2;
+      const cy = ty * T + T / 2;
+      if (k === '#' && all(tx, ty, '#', 1) && r2() < 0.07) {
+        const s = 0.55 + r2() * 0.35;
+        const w = TRANSICAO.musgo.w * s;
+        const h = TRANSICAO.musgo.h * s;
+        g.drawImage(images.musgo, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h));
+      } else if (k === '.' && all(tx, ty, '.', 1) && r2() < 0.025) {
+        const s = 0.35 + r2() * 0.25;
+        const w = TRANSICAO.ilha.w * s;
+        const h = TRANSICAO.ilha.h * s;
+        g.drawImage(images.ilha, Math.round(cx - w / 2), Math.round(cy - h / 2), Math.round(w), Math.round(h));
+      }
+    }
+  }
   return c;
 }
 
@@ -1411,6 +1526,7 @@ function drawWorld() {
   const dark = darkness();
   if (dark > 0.01) drawNight(cx, cy, dark);
   drawSwarms(cx, cy);
+  drawRain(cx, cy);
 
   // indicador de interação
   if (game.state === 'play' && player.target && !busy() && !player.chestQuick) {
@@ -1668,5 +1784,5 @@ requestAnimationFrame(frame);
 
 // Exposto para depuração/testes
 window.BlueCastle = {
-  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep, setClock, hurt, spawnSwarm, get swarms() { return swarms; },
+  game, Input, get world() { return world; }, get player() { return player; }, interact, sleep, setClock, hurt, spawnSwarm, get swarms() { return swarms; }, weather, setRain,
 };

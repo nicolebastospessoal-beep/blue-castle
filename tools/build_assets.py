@@ -336,6 +336,47 @@ def main():
     print(f'tiles: {len(tiles)}')
 
 
+def rain_key(a):
+    """Fundo roxo/magenta das folhas de chuva -> transparente."""
+    r, g, b = a[..., 0], a[..., 1], a[..., 2]
+    # mantém só azuis (gota é azul-claro: verde alto, vermelho abaixo do verde)
+    return ~((r > 110) & (b > 110) & (g < 0.6 * np.minimum(r, b))) & (g >= r - 10)
+
+
+def build_rain():
+    from spritelib import load
+    meta = {}
+    # camada de chuva (painel denso da folha 2): textura que desce pela tela
+    a = load('chuva-2')[20:836, 860:1672].astype(np.int16)
+    im = Image.fromarray(np.dstack([a.astype(np.uint8), (rain_key(a) * 255).astype(np.uint8)]), 'RGBA')
+    im = resize(im, 0.42)
+    im.save(f'{OUT}/chuva-camada.webp', lossless=True, method=6)
+    meta['camada'] = [im.width, im.height]
+    # respingos (coroas) e ondinhas: recortados como sprites
+    sprites = []
+    for sheet, box in (('chuva-1', (40, 1150, 792, 1648)), ('chuva-2', (8, 900, 832, 1688))):
+        a = load(sheet)[box[1]:box[3], box[0]:box[2]].astype(np.int16)
+        fg = rain_key(a)
+        for (x0, y0, x1, y1) in components(fg, step=4, merge=2, min_area=60):
+            if (x1 - x0) < 90 or (y1 - y0) < 30:
+                continue  # pula gotas e riscos soltos
+            cr = Image.fromarray(np.dstack([a[y0:y1, x0:x1].astype(np.uint8),
+                                            (fg[y0:y1, x0:x1] * 255).astype(np.uint8)]), 'RGBA')
+            sprites.append(resize(cr, 0.16))
+    x = 0
+    H = max(sp.height for sp in sprites)
+    sheet = Image.new('RGBA', (sum(sp.width + 2 for sp in sprites), H), (0, 0, 0, 0))
+    meta['respingos'] = []
+    for sp in sprites:
+        sheet.paste(sp, (x, H - sp.height))
+        meta['respingos'].append([x, H - sp.height, sp.width, sp.height])
+        x += sp.width + 2
+    sheet.save(f'{OUT}/chuva-respingos.webp', lossless=True, method=6)
+    with open(f'{OUT}/chuva.js', 'w') as f:
+        f.write('window.CHUVA = ' + json.dumps(meta) + ';\n')
+    print('chuva:', meta['camada'], len(sprites), 'respingos')
+
+
 # Telas cheias (imagem inteira, sem recorte de fundo)
 SCREENS = {'tela-morte': 960}
 # Imagens de interface usadas fora do canvas (HTML), com fundo transparente: nome -> lado em px
@@ -411,9 +452,38 @@ def build_screens():
             loop.paste(im.transpose(Image.Transpose.FLIP_TOP_BOTTOM), (0, im.height))
         loop.save(f'{OUT}/transicao-{key}.webp', lossless=True, method=6)
         meta[key] = {'edge': round(boundary * sc), 'w': loop.width, 'h': loop.height}
+    # Decalques extras (folhas de alternativas):
+    #   canto: grama em cima/esquerda, pedra no canto inferior direito (quina externa)
+    #   musgo: grama invadindo o calçamento (só a grama é mantida)
+    #   ilha:  pedras soltas no meio da grama (só pedras/terra são mantidas)
+    def dil(m, n):
+        for _ in range(n):
+            m = m | np.roll(m, 1, 0) | np.roll(m, -1, 0) | np.roll(m, 1, 1) | np.roll(m, -1, 1)
+        return m
+    dsc = 0.25
+    decals = {
+        'canto': ('transicao-alternativas-2', (6, 14, 830, 838), 'stone', 14),
+        'musgo': ('transicao-alternativas-2', (854, 858, 1674, 1686), 'grass', 6),
+        'ilha': ('transicao-alternativas-1', (1702, 862, 2518, 1682), 'stone', 10),
+    }
+    for key, (sheet, (x0, y0, x1, y1), keep, grow) in decals.items():
+        a = load(sheet)[y0:y1, x0:x1].astype(np.int16)
+        r, g, b = a[..., 0], a[..., 1], a[..., 2]
+        green = (g > r + 25) & (g > b + 15)
+        if keep == 'stone':
+            core = ~green
+            for _ in range(6):  # abertura: tira florzinhas e pontinhos soltos
+                core = core & np.roll(core, 1, 0) & np.roll(core, -1, 0) & np.roll(core, 1, 1) & np.roll(core, -1, 1)
+            m = dil(core, 6 + grow)
+        else:
+            m = dil(green, 2)
+        im = resize(Image.fromarray(np.dstack([a.astype(np.uint8), (m * 255).astype(np.uint8)]), 'RGBA'), dsc)
+        im.save(f'{OUT}/decal-{key}.webp', lossless=True, method=6)
+        meta[key] = {'w': im.width, 'h': im.height}
     with open(f'{OUT}/transicao.js', 'w') as f:
         f.write('window.TRANSICAO = ' + json.dumps(meta) + ';\n')
     print('transição:', meta)
+    build_rain()
     for name, size in UI_IMAGES.items():
         a, fg = fg_mask(name)
         ys, xs = np.nonzero(fg)

@@ -9,6 +9,7 @@ Você controla o Rei Azul em uma vila com praça, feira, catedral, rio, fazenda 
 - **Morte:** com a vida zerada, o rei desmaia e aparece a tela "Você morreu... Renasça.". Ao confirmar, ele renasce em casa.
 - **Cavalos:** dois cavalos ficam no pasto ao sul do rio. Eles andam nas 4 direções, param para comer grama e desviam da fogueira. Dá para acariciar com E.
 - **Vagalumes:** bandos raros de 5 a 9 vagalumes cruzam o mapa piscando. Aparecem principalmente à noite (cerca de 1 a cada 1,5 min) e quase nunca de dia (cerca de 1 a cada 12 min).
+- **Chuva:** começa sozinha de vez em quando (a cada 4–10 min), dura de 1,5 a 4 min e chega e vai embora aos poucos. O céu fecha, as gotas caem em duas camadas, aparecem respingos no chão e ondinhas na água, e há o som da chuva. Vagalumes não aparecem enquanto chove.
 - **Pausa:** o botão no canto superior esquerdo funciona com clique ou toque (ou P / Esc).
 
 ## Como jogar
