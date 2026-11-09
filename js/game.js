@@ -185,6 +185,44 @@ document.querySelectorAll('[data-action]').forEach((btn) => {
   btn.addEventListener('pointerleave', end);
   btn.addEventListener('contextmenu', (e) => e.preventDefault());
 });
+// Direcional de toque: uma peça só; a direção sai da posição do dedo
+// (aceita diagonais e arrastar o dedo sem soltar)
+(function setupDpad() {
+  const pad = document.getElementById('dpad');
+  if (!pad) return;
+  let pointer = null;
+  let held = [];
+  const setDirs = (dirs) => {
+    for (const d of held) if (!dirs.includes(d)) Input.release(d);
+    for (const d of dirs) if (!held.includes(d)) Input.press(d);
+    held = dirs;
+    pad.dataset.dir = dirs.join(' ');
+  };
+  const fromEvent = (e) => {
+    const r = pad.getBoundingClientRect();
+    const dx = (e.clientX - (r.left + r.width / 2)) / (r.width / 2);
+    const dy = (e.clientY - (r.top + r.height / 2)) / (r.height / 2);
+    const dirs = [];
+    if (Math.hypot(dx, dy) < 0.18) return dirs; // zona morta no centro
+    const ang = Math.atan2(dy, dx);
+    const oct = Math.round(ang / (Math.PI / 4)); // 8 direções
+    const map = { 0: ['right'], 1: ['down', 'right'], 2: ['down'], 3: ['down', 'left'], 4: ['left'], '-4': ['left'], '-3': ['up', 'left'], '-2': ['up'], '-1': ['up', 'right'] };
+    return map[oct];
+  };
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    Sound.init();
+    pointer = e.pointerId;
+    pad.setPointerCapture(e.pointerId);
+    setDirs(fromEvent(e));
+  });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === pointer) setDirs(fromEvent(e)); });
+  const end = (e) => { if (e.pointerId === pointer) { pointer = null; setDirs([]); } };
+  pad.addEventListener('pointerup', end);
+  pad.addEventListener('pointercancel', end);
+  pad.addEventListener('contextmenu', (e) => e.preventDefault());
+}());
+
 canvas.addEventListener('pointerdown', (e) => {
   Sound.init();
   const r = canvas.getBoundingClientRect();

@@ -295,6 +295,8 @@ def main():
 
 # Telas cheias (imagem inteira, sem recorte de fundo)
 SCREENS = {'tela-morte': 960}
+# Imagens de interface usadas fora do canvas (HTML), com fundo transparente: nome -> lado em px
+UI_IMAGES = {'direcional': 360}
 
 
 def build_screens():
@@ -305,6 +307,16 @@ def build_screens():
         im = Image.fromarray(a.astype(np.uint8), 'RGB').resize((size, size), Image.BOX)
         im.save(f'{OUT}/{name}.webp', quality=90, method=6)
         print(f'tela: {name}')
+    for name, size in UI_IMAGES.items():
+        a, fg = fg_mask(name)
+        ys, xs = np.nonzero(fg)
+        box = (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1)
+        im = crop_rgba(a, fg, box)
+        side = max(im.width, im.height)
+        sq = Image.new('RGBA', (side, side), (0, 0, 0, 0))
+        sq.paste(im, ((side - im.width) // 2, (side - im.height) // 2))
+        resize(sq, size / side).save(f'{OUT}/{name}.webp', lossless=True, method=6)
+        print(f'interface: {name}')
 
 
 if __name__ == '__main__':

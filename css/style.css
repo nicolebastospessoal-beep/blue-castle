@@ -45,24 +45,33 @@ body.touch #touch-controls {
 
 #touch-controls .dpad {
   position: absolute;
-  left: max(16px, env(safe-area-inset-left));
+  left: max(12px, env(safe-area-inset-left));
   /* acima da barra de vida (canto inferior esquerdo da tela) */
-  bottom: max(84px, env(safe-area-inset-bottom));
-  width: 180px;
-  height: 180px;
+  bottom: max(78px, env(safe-area-inset-bottom));
+  width: 170px;
+  height: 170px;
+  pointer-events: auto;
+  touch-action: none;
 }
 
-#touch-controls .dpad button {
-  position: absolute;
-  width: 60px;
-  height: 60px;
-  border-radius: 14px;
+#touch-controls .dpad img {
+  width: 100%;
+  height: 100%;
+  image-rendering: pixelated;
+  opacity: 0.9;
+  transition: transform 60ms;
+  -webkit-user-drag: none;
 }
 
-#touch-controls .dpad .up { left: 60px; top: 0; }
-#touch-controls .dpad .down { left: 60px; bottom: 0; }
-#touch-controls .dpad .left { left: 0; top: 60px; }
-#touch-controls .dpad .right { right: 0; top: 60px; }
+/* inclina levemente para o lado pressionado */
+#touch-controls .dpad[data-dir~="up"] img { transform: perspective(300px) rotateX(10deg); }
+#touch-controls .dpad[data-dir~="down"] img { transform: perspective(300px) rotateX(-10deg); }
+#touch-controls .dpad[data-dir~="left"] img { transform: perspective(300px) rotateY(-10deg); }
+#touch-controls .dpad[data-dir~="right"] img { transform: perspective(300px) rotateY(10deg); }
+#touch-controls .dpad[data-dir~="up"][data-dir~="left"] img { transform: perspective(300px) rotateX(8deg) rotateY(-8deg); }
+#touch-controls .dpad[data-dir~="up"][data-dir~="right"] img { transform: perspective(300px) rotateX(8deg) rotateY(8deg); }
+#touch-controls .dpad[data-dir~="down"][data-dir~="left"] img { transform: perspective(300px) rotateX(-8deg) rotateY(-8deg); }
+#touch-controls .dpad[data-dir~="down"][data-dir~="right"] img { transform: perspective(300px) rotateX(-8deg) rotateY(8deg); }
 
 #touch-controls .buttons {
   position: absolute;
