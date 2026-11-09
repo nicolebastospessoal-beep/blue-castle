@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+  <meta name="theme-color" content="#060b24">
+  <title>Blue Castle</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <main id="stage">
+    <canvas id="game" width="960" height="540" aria-label="Blue Castle — jogo de plataforma"></canvas>
+  </main>
+
+  <div id="touch-controls" aria-hidden="true">
+    <div class="pad left">
+      <button data-action="left">◀</button>
+      <button data-action="right">▶</button>
+    </div>
+    <button class="pause" data-action="pause">❚❚</button>
+    <div class="pad right">
+      <button data-action="down">▼</button>
+      <button class="big" data-action="jump">▲</button>
+    </div>
+  </div>
+
+  <script src="js/levels.js"></script>
+  <script src="js/game.js"></script>
+</body>
+</html>

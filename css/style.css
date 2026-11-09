@@ -1,0 +1,95 @@
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: #03061a;
+  overflow: hidden;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#stage {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+#game {
+  display: block;
+  /* Mantém a proporção 16:9 ocupando o máximo da tela */
+  width: min(100vw, calc(100vh * 16 / 9));
+  height: min(100vh, calc(100vw * 9 / 16));
+  image-rendering: pixelated;
+  border-radius: 6px;
+  box-shadow: 0 0 60px rgba(40, 90, 200, 0.35);
+}
+
+/* ---------- Controles de toque ---------- */
+#touch-controls {
+  display: none;
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+}
+
+body.touch #touch-controls {
+  display: block;
+}
+
+#touch-controls .pad {
+  position: absolute;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  display: flex;
+  gap: 14px;
+  align-items: flex-end;
+}
+
+#touch-controls .pad.left {
+  left: max(16px, env(safe-area-inset-left));
+}
+
+#touch-controls .pad.right {
+  right: max(16px, env(safe-area-inset-right));
+}
+
+#touch-controls button {
+  pointer-events: auto;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  border: 2px solid rgba(160, 190, 255, 0.55);
+  background: rgba(20, 40, 100, 0.45);
+  color: #e6f0ff;
+  font-size: 26px;
+  line-height: 1;
+  touch-action: none;
+  backdrop-filter: blur(2px);
+}
+
+#touch-controls button.big {
+  width: 84px;
+  height: 84px;
+  font-size: 32px;
+}
+
+#touch-controls button.active {
+  background: rgba(70, 120, 230, 0.75);
+}
+
+#touch-controls .pause {
+  position: absolute;
+  bottom: max(24px, env(safe-area-inset-bottom));
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 46px;
+  font-size: 16px;
+}
